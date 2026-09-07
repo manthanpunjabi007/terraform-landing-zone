@@ -7,3 +7,7 @@ output "account_id" {
   description = "AWS account ID Terraform is authenticated against."
   value       = data.aws_caller_identity.current.account_id
 }
+output "subnet_ids_by_tier" {
+  description = "Subnet IDs grouped by tier."
+  value       = module.networking.subnet_ids_by_tier
+}
