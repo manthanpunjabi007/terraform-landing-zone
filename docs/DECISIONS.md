@@ -184,3 +184,41 @@ merely that the command succeeded.
 remediation paths.
 
 *Connects to: credential chain resolution, debugging methodology, why the account ID in the ARN is worth reading.*
+
+---
+
+## Day 2 — Variables, modules, and the VPC
+
+### for_each over count for the subnets
+
+**Chose** `for_each` over a map of named subnet objects. **Rejected** `count` over a list of CIDRs, which is shorter.
+
+`count` keys resources by position. Remove one entry and everything after it shifts up — Terraform doesn't see a removal, it compares position by position, so the resource that moved into the gap gets modified into its successor and the last position is destroyed. A harmless-looking edit destroys a subnet you never touched. `for_each` keys by name, so removing `private-a` affects only `private-a`.
+
+**Trade-off.** The input is `map(object({...}))` instead of a list of strings — more to declare and read. Worth it wherever elements have distinct identities. `count` still wins for interchangeable replicas and for conditional creation.
+
+*Connects to: Day 3 route table associations keyed off the same map, state addressing, blast radius.*
+
+---
+
+### What gets parameterised, and what doesn't
+
+**Chose** three inputs on the networking module — `vpc_cidr`, `name_prefix`, `subnets`. DNS settings hardcoded, availability zones read from a data source.
+
+The question for each value is who decides it. Caller decides → variable. AWS decides → data source. I decide → hardcoded, and it goes here. DNS support and hostnames are mine: the S3 gateway endpoint on Day 3 resolves by name, so `enable_dns_hostnames = false` builds cleanly and silently fails at the module's purpose. A dial that breaks the machine isn't a feature.
+
+**Trade-off.** Less configurable; anyone with a real reason to disable DNS has to fork it. Correct direction of friction — a module that makes no decisions provides no value, and the hardcoded parts are the opinion the module exists to hold.
+
+*Connects to: Day 3 VPC endpoint, Day 4 IAM permissions (same argument, higher stakes).*
+
+---
+
+### One subnet per tier per AZ, with gaps in the address plan
+
+**Chose** six subnets — public, private, isolated — one of each in two AZs, at 10.0.0/1, 10.0.10/11, 10.0.20/21. **Rejected** a single AZ, and consecutive /24s.
+
+An AZ is a physically separate datacentre. A subnet lives in exactly one and can't span two, so resilience needs a pair per tier: lose a building and every tier still has capacity. Six subnets in one AZ is the same resource count with none of the benefit. The gaps exist because a third public subnet should be 10.0.2.0/24 and sit with its siblings — pack tightly now and future additions land in the wrong place.
+
+**Trade-off.** Two AZs is the minimum; three is the AWS recommendation for quorum-based systems. Two is enough with no workload and keeps the diagram legible. Unused ranges are wasted address space, which is free at /16.
+
+*Connects to: fault domains, why a subnet can't span AZs, capacity planning.*
