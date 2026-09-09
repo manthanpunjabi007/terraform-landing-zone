@@ -19,3 +19,7 @@ output "subnet_ids_by_tier" {
     tier => [for k, v in var.subnets : aws_subnet.this[k].id if v.tier == tier]
   }
 }
+output "s3_endpoint_id" {
+  description = "ID of the S3 gateway VPC endpoint."
+  value       = aws_vpc_endpoint.s3.id
+}
