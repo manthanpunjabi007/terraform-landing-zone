@@ -23,3 +23,65 @@ resource "aws_subnet" "this" {
     Tier = each.value.tier
   }
 }
+
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name = "${var.name_prefix}-igw"
+  }
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
+  }
+  tags = {
+    Name = "${var.name_prefix}-public-rt"
+  }
+}
+
+resource "aws_route_table_association" "public" {
+  for_each = { for k, v in var.subnets : k => v if v.tier == "public" }
+
+  subnet_id      = aws_subnet.this[each.key].id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name = "${var.name_prefix}-private-rt"
+  }
+}
+
+resource "aws_route_table" "isolated" {
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name = "${var.name_prefix}-isolated-rt"
+  }
+}
+
+resource "aws_route_table_association" "private" {
+  for_each       = { for k, v in var.subnets : k => v if v.tier == "private" }
+  subnet_id      = aws_subnet.this[each.key].id
+  route_table_id = aws_route_table.private.id
+}
+resource "aws_route_table_association" "isolated" {
+  for_each = { for k, v in var.subnets : k => v if v.tier == "isolated" }
+
+  subnet_id      = aws_subnet.this[each.key].id
+  route_table_id = aws_route_table.isolated.id
+}
+
+resource "aws_default_route_table" "main" {
+  default_route_table_id = aws_vpc.main.default_route_table_id
+  tags = {
+    Name = "${var.name_prefix}-main-rt-unused"
+  }
+}
