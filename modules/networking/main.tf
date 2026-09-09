@@ -1,6 +1,7 @@
 data "aws_availability_zones" "available" {
   state = "available"
 }
+data "aws_region" "current" {}
 
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
@@ -83,5 +84,29 @@ resource "aws_default_route_table" "main" {
   default_route_table_id = aws_vpc.main.default_route_table_id
   tags = {
     Name = "${var.name_prefix}-main-rt-unused"
+  }
+}
+
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = aws_vpc.main.id
+  service_name      = "com.amazonaws.${data.aws_region.current.region}.s3"
+  vpc_endpoint_type = "Gateway"
+
+  route_table_ids = [aws_route_table.private.id]
+
+  tags = {
+    Name = "${var.name_prefix}-s3-endpoint"
+  }
+}
+
+resource "aws_default_security_group" "default" {
+  vpc_id = aws_vpc.main.id
+
+  # Intentionally empty: no ingress, no egress.
+  # This group cannot be deleted and is attached to anything that
+  # does not specify a security group, so it is stripped to deny-all.
+
+  tags = {
+    Name = "${var.name_prefix}-default-sg-locked"
   }
 }
