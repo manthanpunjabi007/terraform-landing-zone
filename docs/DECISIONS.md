@@ -205,7 +205,7 @@ remediation paths.
 
 **Chose** three inputs on the networking module — `vpc_cidr`, `name_prefix`, `subnets`. DNS settings hardcoded, availability zones read from a data source.
 
-The question for each value is who decides it. Caller decides → variable. AWS decides → data source. I decide → hardcoded, and it goes here. DNS support and hostnames are mine: the S3 gateway endpoint on Day 3 resolves by name, so `enable_dns_hostnames = false` builds cleanly and silently fails at the module's purpose. A dial that breaks the machine isn't a feature.
+The question for each value is who decides it. Caller decides → variable. AWS decides → data source. I decide → hardcoded, and it goes here. DNS support and hostnames are mine: the S3 gateway endpoint on Day 3 requires enable_dns_support so that S3's public name resolves to addresses the endpoint's prefix list covers, so turning it off builds cleanly and silently fails at the module's purpose. (Corrected on Day 3 — this originally cited enable_dns_hostnames, which matters for interface endpoints rather than gateway endpoints. Both settings remain hardcoded; only the reasoning was wrong.) A dial that breaks the machine isn't a feature.
 
 **Trade-off.** Less configurable; anyone with a real reason to disable DNS has to fork it. Correct direction of friction — a module that makes no decisions provides no value, and the hardcoded parts are the opinion the module exists to hold.
 
@@ -222,3 +222,41 @@ An AZ is a physically separate datacentre. A subnet lives in exactly one and can
 **Trade-off.** Two AZs is the minimum; three is the AWS recommendation for quorum-based systems. Two is enough with no workload and keeps the diagram legible. Unused ranges are wasted address space, which is free at /16.
 
 *Connects to: fault domains, why a subnet can't span AZs, capacity planning.*
+
+---
+
+## Day 3 — Routing, endpoint, and defaults
+
+### No NAT Gateway — an S3 gateway endpoint instead
+
+**Chose** a free S3 gateway VPC endpoint on the private route table. **Rejected** a NAT Gateway.
+
+Nothing in this landing zone needs general outbound internet. The private subnets have exactly one external dependency, S3, and a gateway endpoint serves it privately and free — traffic never leaves the AWS network. NAT would have cost around $35/month plus data, and added several minutes to every apply and destroy, to provide capability nothing uses.
+
+**Trade-off.** Anything later needing package downloads or third-party APIs would need NAT added. This is a decision about this workload, not a general rule.
+
+*Connects to: Day 5 bucket policies, README architecture section, cost control.*
+
+---
+
+### Lock the default security group and the main route table
+
+**Chose** to adopt both with `aws_default_*` resources and strip them to zero rules. **Rejected** leaving them alone as harmless.
+
+Neither can be deleted, and both are fallbacks: the security group catches anything launched without a group specified, the main route table catches any subnet without an association. The dangerous default is the one nobody is looking at. Emptied, both fail closed.
+
+**Trade-off.** Adoption resources read oddly — the plan says "create" for objects that already exist, and `terraform destroy` leaves them behind rather than deleting them.
+
+*Connects to: fail-closed defaults, Day 8 incident demo.*
+
+---
+
+### Associate all six subnets explicitly
+
+**Chose** a named route table for every subnet. **Rejected** letting the isolated tier fall through to the main route table, which behaves identically today.
+
+Identical *today*. Behaviour that depends on an unconfigured fallback is behaviour nobody decided, and it changes silently if the fallback ever changes.
+
+**Trade-off.** Six association resources instead of four.
+
+*Connects to: explicit over implicit, main route table trap.*
