@@ -11,3 +11,7 @@ output "subnet_ids_by_tier" {
   description = "Subnet IDs grouped by tier."
   value       = module.networking.subnet_ids_by_tier
 }
+output "role_arns" {
+  description = "IAM role ARNs."
+  value       = module.iam.role_arns
+}

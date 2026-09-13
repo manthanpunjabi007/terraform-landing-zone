@@ -18,3 +18,9 @@ module "networking" {
     "isolated-b" = { cidr = "10.0.21.0/24", az_index = 1, tier = "isolated" }
   }
 }
+module "iam" {
+  source = "./modules/iam"
+
+  role_name_prefix       = "LandingZone"
+  trusted_principal_arns = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/terraform-admin"]
+}
