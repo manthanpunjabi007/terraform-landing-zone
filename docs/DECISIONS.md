@@ -260,3 +260,53 @@ Identical *today*. Behaviour that depends on an unconfigured fallback is behavio
 **Trade-off.** Six association resources instead of four.
 
 *Connects to: explicit over implicit, main route table trap.*
+
+---
+
+## Day 4 — IAM
+
+### A scoped admin role with a deny guardrail, not AdministratorAccess
+
+**Chose** a custom policy allowing the services this landing zone uses, plus an explicit `Deny` on CloudTrail and Config tampering, and read-only on IAM. **Rejected** attaching `AdministratorAccess`.
+
+`AdministratorAccess` would make the role pointless — the scoping is the deliverable. The deny statement matters more than the allow: explicit deny beats every allow, so even if someone widens this role later, it still cannot stop logging. An administrator who can operate everything but cannot blind the audit trail. IAM is limited to `Get*` and `List*` for the same reason — a role that can write IAM policies can remove its own restrictions, which is privilege escalation.
+
+**Trade-off.** The service list needs updating as the landing zone grows, and a missing action fails at apply time rather than being caught in review.
+
+*Connects to: policy evaluation order, privilege escalation, Day 6 CloudTrail.*
+
+---
+
+### AWS-managed ReadOnlyAccess, despite refusing AdministratorAccess
+
+**Chose** the AWS-managed `ReadOnlyAccess` policy for the ReadOnly role. **Rejected** writing an equivalent by hand.
+
+Looks inconsistent, isn't. `AdministratorAccess` on the admin role would have removed the role's reason to exist. `ReadOnlyAccess` *is* the requirement, and enumerating every read action across every AWS service by hand would be thousands of lines, permanently stale, and worse than what AWS maintains. The rule: managed policies are fine where the risk is low and the surface is enormous.
+
+**Trade-off.** AWS can widen the policy without telling me. Acceptable for read-only; not for anything that writes.
+
+*Connects to: managed vs customer-managed policies, maintenance burden.*
+
+---
+
+### A separate trust document for Deploy, identical to Admin's today
+
+**Chose** `deploy_trust` as its own document even though its contents currently match `admin_trust`. **Rejected** sharing one document across all three roles.
+
+On Day 11 this one is rewritten to trust GitHub's OIDC provider and Admin's is not. Separating things that will diverge — even when identical today — is cheaper than untangling them later. The `Sid` reads `PlaceholderUntilOIDC` so the intent survives without me.
+
+**Trade-off.** Duplicated content for a week. Also noted: Deploy's permissions use `resources = ["*"]` because the buckets don't exist until Day 5; this should narrow to specific ARNs once they do.
+
+*Connects to: Day 11 OIDC federation, Day 5 storage.*
+
+---
+
+### MFA enforced by denial, on a group
+
+**Chose** a `Deny` policy conditioned on `BoolIfExists` `aws:MultiFactorAuthPresent` being false, with `NotAction` exempting self-service credential calls, attached to a group.
+
+AWS has no "require MFA at login" setting, so you deny everything else instead. Three details carry it. `Deny` because explicit deny is unoverridable — a guardrail that another policy could cancel isn't a guardrail. `NotAction` because otherwise a user without MFA cannot set up MFA, and the policy locks them out permanently. `BoolIfExists` rather than `Bool` because requests made with long-lived access keys omit the condition key entirely — plain `Bool` finds nothing to compare and silently fails to apply, leaving a hole exactly where leaked credentials live.
+
+**Trade-off, stated plainly.** There are no IAM users in this group. The only user is `terraform-admin`, whose key Terraform needs. The pattern is in place and demonstrable; it is not currently enforcing anything.
+
+*Connects to: fail-closed defaults, condition operators, Day 11 deleting the static key.*
