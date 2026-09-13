@@ -129,3 +129,70 @@ resource "aws_iam_role_policy_attachment" "deploy" {
   role       = aws_iam_role.deploy.name
   policy_arn = aws_iam_policy.deploy.arn
 }
+
+resource "aws_iam_account_password_policy" "strict" {
+  minimum_password_length        = 14
+  require_uppercase_characters   = true
+  require_lowercase_characters   = true
+  require_numbers                = true
+  require_symbols                = true
+  allow_users_to_change_password = true
+  max_password_age               = 0
+  password_reuse_prevention      = 5
+}
+
+data "aws_iam_policy_document" "require_mfa" {
+  statement {
+    sid    = "AllowSelfServiceMFAManagement"
+    effect = "Allow"
+    actions = [
+      "iam:CreateVirtualMFADevice",
+      "iam:EnableMFADevice",
+      "iam:ListMFADevices",
+      "iam:ListVirtualMFADevices",
+      "iam:ResyncMFADevice",
+      "iam:DeactivateMFADevice",
+      "iam:ChangePassword",
+      "iam:GetUser"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid       = "DenyEverythingElseWithoutMFA"
+    effect    = "Deny"
+    resources = ["*"]
+
+    not_actions = [
+      "iam:CreateVirtualMFADevice",
+      "iam:EnableMFADevice",
+      "iam:ListMFADevices",
+      "iam:ListVirtualMFADevices",
+      "iam:ResyncMFADevice",
+      "iam:ChangePassword",
+      "iam:GetUser",
+      "sts:GetSessionToken"
+    ]
+
+    condition {
+      test     = "BoolIfExists"
+      variable = "aws:MultiFactorAuthPresent"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_iam_policy" "require_mfa" {
+  name        = "${var.role_name_prefix}RequireMFA"
+  description = "Denies all actions except self-service MFA setup when MFA is not present."
+  policy      = data.aws_iam_policy_document.require_mfa.json
+}
+
+resource "aws_iam_group" "mfa_required" {
+  name = "${var.role_name_prefix}MFARequired"
+}
+
+resource "aws_iam_group_policy_attachment" "require_mfa" {
+  group      = aws_iam_group.mfa_required.name
+  policy_arn = aws_iam_policy.require_mfa.arn
+}
