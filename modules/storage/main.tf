@@ -39,3 +39,34 @@ resource "aws_s3_bucket_ownership_controls" "data" {
     object_ownership = "BucketOwnerEnforced"
   }
 }
+data "aws_iam_policy_document" "data_bucket" {
+  statement {
+    sid    = "DenyInsecureTransport"
+    effect = "Deny"
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    actions = ["s3:*"]
+
+    resources = [
+      aws_s3_bucket.data.arn,
+      "${aws_s3_bucket.data.arn}/*"
+    ]
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "data" {
+  bucket = aws_s3_bucket.data.id
+  policy = data.aws_iam_policy_document.data_bucket.json
+
+  depends_on = [aws_s3_bucket_public_access_block.data]
+}
