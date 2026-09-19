@@ -310,3 +310,58 @@ AWS has no "require MFA at login" setting, so you deny everything else instead. 
 **Trade-off, stated plainly.** There are no IAM users in this group. The only user is `terraform-admin`, whose key Terraform needs. The pattern is in place and demonstrable; it is not currently enforcing anything.
 
 *Connects to: fail-closed defaults, condition operators, Day 11 deleting the static key.*
+---
+
+## Day 5 — Hardened storage
+
+### SSE-S3 rather than KMS
+
+**Chose** SSE-S3 (`AES256`) on both buckets. **Rejected** SSE-KMS with a customer-managed key.
+
+KMS earns its cost when you need key-level access control, rotation you manage, or an audit trail of who decrypted what. None of that applies to a demo landing zone with no sensitive data. Paying roughly a dollar a month per key plus per-request charges for capability nothing uses is cost without benefit.
+
+**Worth stating precisely:** S3 has encrypted new objects with SSE-S3 by default since January 2023, so this configuration makes encryption explicit and auditable rather than turning it on. A Config rule checking for an encryption configuration finds nothing on a bucket relying on the invisible default — that is the reason to write it, not the encryption itself.
+
+**Trade-off.** No ability to revoke access by disabling a key, and no separate log of key usage. Both would matter for real data.
+
+*Connects to: Day 7 Config encryption rule, cost control, honest claims.*
+
+---
+
+### HTTPS enforced by a Deny policy, because no setting exists
+
+**Chose** a bucket policy denying any request where `aws:SecureTransport` is false. **Rejected** looking for a setting, because there isn't one — S3 accepts plain HTTP and offers no way to turn that off.
+
+Two details carry it. The `Principal` is a wildcard, which is safe here and catastrophic in an `Allow`: in a `Deny` it means "no exceptions", which is exactly right for a transport rule. And the condition uses `Bool` rather than `BoolIfExists`, unlike the MFA policy on Day 4 — `aws:SecureTransport` is set on every S3 request without exception, so there is no absent-key gap to close. Using `BoolIfExists` would be harmless but would signal copying rather than reasoning.
+
+**The wider pattern:** where AWS provides a setting, use the setting. Where it does not — HTTP, MFA at login — the control is expressed as a Deny.
+
+**Verified:** identical uploads over HTTPS and HTTP; the HTTP attempt returned AccessDenied citing an explicit deny in a resource-based policy, despite the caller holding AdministratorAccess.
+
+*Connects to: Day 4 MFA policy, explicit deny precedence, condition key availability.*
+
+---
+
+### force_destroy on versioned buckets, for a demo only
+
+**Chose** `force_destroy = true`, passed from the root. **Rejected** leaving it false and emptying buckets by hand.
+
+The two decisions are linked: versioning means a delete leaves a delete marker rather than removing anything, so a bucket that looks empty still cannot be deleted. Day 9 requires a clean `terraform destroy` as a deliverable, and that fails with `BucketNotEmpty` otherwise.
+
+**Trade-off, and the part that matters.** `force_destroy` deletes all contents with no confirmation and no undo. A careless resource rename would destroy a bucket and everything in it. It is correct here because the account holds nothing real; it would be wrong on any bucket holding data. The module variable defaults to `false` so the dangerous value must be opted into at the call site, visibly.
+
+*Connects to: Day 9 teardown, versioning delete markers, safe defaults.*
+
+---
+
+### aws:SourceAccount on the CloudTrail grant — the confused deputy
+
+**Chose** to condition CloudTrail's write access on `aws:SourceAccount` matching this account. **Rejected** granting the service principal unconditionally.
+
+`cloudtrail.amazonaws.com` is shared by every AWS customer. An unconditioned grant says "the CloudTrail service may write here", which lets anyone create a trail in their own account, point it at this bucket, and have the service write on their behalf. The service is not compromised — it is a trusted deputy confused about whose request it is carrying out. The condition pins the grant to this account, so a stranger's trail fails.
+
+The write path is also scoped to `/AWSLogs/<account-id>/*` rather than `/*`, and a second statement grants `s3:GetBucketAcl` on the bucket ARN because CloudTrail checks writability before delivering — omit it and delivery fails silently with no error.
+
+**To tighten tomorrow.** `aws:SourceArn` pins to one specific trail rather than one account, which is stricter. The trail does not exist yet, so `SourceAccount` is today's granularity. Narrow it on Day 6.
+
+*Connects to: Day 6 CloudTrail trail, service principals, bucket vs object ARNs.
