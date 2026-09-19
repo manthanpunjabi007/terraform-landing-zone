@@ -24,3 +24,10 @@ module "iam" {
   role_name_prefix       = "LandingZone"
   trusted_principal_arns = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/terraform-admin"]
 }
+
+module "storage" {
+  source = "./modules/storage"
+
+  name_prefix   = "lz-secure"
+  force_destroy = true
+}
